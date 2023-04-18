@@ -79,6 +79,10 @@ impl Lexer {
         } else if self.current_token.token_type != TokenType::NonToken {
             self.tokens.push(self.current_token.clone());
         } else {
+            // TODO: decide whether it is a whitespace char or an illegal char
+            // if it is a whitespace char, do nothing
+            // if it is an illegal char, throw an error
+            //
             // do nothing reset the current literal
             self.current_token.token_type = TokenType::NonToken;
             self.current_token.literal = Vec::new();
