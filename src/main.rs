@@ -1,6 +1,6 @@
 use anyhow::Result;
 use regex::Regex;
-use std::{io, fmt::Formatter};
+use std::{fmt::Formatter, io};
 
 const NUMBER_TOKEN: &str = r"[0-9]";
 const OPERATOR_TOKEN: &str = r"[+-]";
