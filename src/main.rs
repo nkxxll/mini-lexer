@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use std::{fmt, io::Write, ops::Mul, ptr::read_unaligned};
+use std::{fmt, io::Write};
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum OperatorType {
@@ -7,6 +7,7 @@ pub enum OperatorType {
     Subtract,
     Multiply,
     Divide,
+    Power,
 }
 
 impl fmt::Display for OperatorType {
@@ -16,6 +17,7 @@ impl fmt::Display for OperatorType {
             OperatorType::Subtract => write!(f, "-"),
             OperatorType::Multiply => write!(f, "*"),
             OperatorType::Divide => write!(f, "/"),
+            OperatorType::Power => write!(f, "**"),
         }
     }
 }
@@ -35,7 +37,7 @@ impl fmt::Display for TokenType {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Token<'a> {
     type_: TokenType,
     start: usize,
@@ -91,14 +93,22 @@ impl<'a> Iterator for Tokenizer<'a> {
             TokenType::Number(num)
         } else {
             // Parse operator
-            self.index += 1;
             let token_type = match ch {
                 '+' => TokenType::Operator(OperatorType::Add),
                 '-' => TokenType::Operator(OperatorType::Subtract),
-                '*' => TokenType::Operator(OperatorType::Multiply),
+                '*' => {
+                    let peek = self.peek();
+                    if peek == Some('*') {
+                        self.index += 1;
+                        TokenType::Operator(OperatorType::Power)
+                    } else {
+                        TokenType::Operator(OperatorType::Multiply)
+                    }
+                }
                 '/' => TokenType::Operator(OperatorType::Divide),
                 _ => return None,
             };
+            self.index += 1;
             token_type
         };
 
@@ -115,6 +125,10 @@ impl<'a> Iterator for Tokenizer<'a> {
 }
 
 impl<'a> Tokenizer<'a> {
+    pub fn peek(self: &Self) -> Option<char> {
+        self.input.chars().nth(self.index + 1)
+    }
+
     pub fn tokenize(source: &'a str) -> Tokenizer<'a> {
         Tokenizer {
             input: source,
@@ -157,14 +171,28 @@ impl<'a> Parser<'a> {
         }
     }
 
+    pub fn expo(self: &mut Self) -> Result<f32> {
+        use OperatorType::*;
+        use TokenType::*;
+        let mut base = self.factor()?;
+        while let Some(op) = self.accept(|t| matches!(t, Operator(Power))) {
+            let exponent = self.factor()?;
+            base = match op.type_ {
+                Operator(Power) => base.powf(exponent),
+                _ => unreachable!(),
+            };
+        }
+        Ok(base)
+    }
+
     /// a term is:
     /// factor (* | /) factor (* | /) factor ...
     pub fn term(self: &mut Self) -> Result<f32> {
         use OperatorType::*;
         use TokenType::*;
-        let mut left = self.factor()?;
+        let mut left = self.expo()?;
         while let Some(op) = self.accept(|t| matches!(t, Operator(Multiply) | Operator(Divide))) {
-            let right = self.factor()?;
+            let right = self.expo()?;
             left = match op.type_ {
                 Operator(Multiply) => left * right,
                 Operator(Divide) => left / right,
@@ -210,5 +238,64 @@ fn main() -> Result<()> {
         let result = parser.expression()?;
         println!("{}", result);
         buf.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tokenize() {
+        let input = "2 ** 2 + 4 * 5";
+        let tokenizer = Tokenizer::tokenize(&input).peekable();
+        let tokens = tokenizer.into_iter().collect::<Vec<Token>>();
+        assert_eq!(
+            tokens,
+            vec![
+                Token {
+                    type_: TokenType::Number(2.0),
+                    start: 0,
+                    end: 1,
+                    literal: "2"
+                },
+                Token {
+                    type_: TokenType::Operator(OperatorType::Power),
+                    start: 2,
+                    end: 4,
+                    literal: "**"
+                },
+                Token {
+                    type_: TokenType::Number(2.0),
+                    start: 5,
+                    end: 6,
+                    literal: "2"
+                },
+                Token {
+                    type_: TokenType::Operator(OperatorType::Add),
+                    start: 7,
+                    end: 8,
+                    literal: "+"
+                },
+                Token {
+                    type_: TokenType::Number(4.0),
+                    start: 9,
+                    end: 10,
+                    literal: "4"
+                },
+                Token {
+                    type_: TokenType::Operator(OperatorType::Multiply),
+                    start: 11,
+                    end: 12,
+                    literal: "*"
+                },
+                Token {
+                    type_: TokenType::Number(5.0),
+                    start: 13,
+                    end: 14,
+                    literal: "5"
+                }
+            ]
+        );
     }
 }
