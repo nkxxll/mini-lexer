@@ -185,14 +185,33 @@ impl<'a> Parser<'a> {
         Ok(base)
     }
 
+    pub fn unminus(self: &mut Self) -> Result<f32> {
+        if let Some(token) = self.tokenizer.next() {
+            match token.type_ {
+                TokenType::Operator(OperatorType::Add) => {
+                    let token = self.expo()?;
+                    Ok(token)
+                }
+                TokenType::Operator(OperatorType::Subtract) => {
+                    let token = self.expo()?;
+                    Ok(token * -1.0)
+                }
+                TokenType::Number(n) => Ok(n),
+                _ => Err(anyhow!("expected number, got {}", token.type_)),
+            }
+        } else {
+            Err(anyhow!("unexpected end of input"))
+        }
+    }
+
     /// a term is:
     /// factor (* | /) factor (* | /) factor ...
     pub fn term(self: &mut Self) -> Result<f32> {
         use OperatorType::*;
         use TokenType::*;
-        let mut left = self.expo()?;
+        let mut left = self.unminus()?;
         while let Some(op) = self.accept(|t| matches!(t, Operator(Multiply) | Operator(Divide))) {
-            let right = self.expo()?;
+            let right = self.unminus()?;
             left = match op.type_ {
                 Operator(Multiply) => left * right,
                 Operator(Divide) => left / right,
@@ -297,5 +316,95 @@ mod tests {
                 }
             ]
         );
+    }
+
+    #[test]
+    fn test_unary_plus() {
+        let input = "+5";
+        let tokenizer = Tokenizer::tokenize(input).peekable();
+        let mut parser = Parser { tokenizer };
+        let result = parser.expression().unwrap();
+        assert_eq!(result, 5.0);
+    }
+
+    #[test]
+    fn test_unary_minus() {
+        let input = "-5";
+        let tokenizer = Tokenizer::tokenize(input).peekable();
+        let mut parser = Parser { tokenizer };
+        let result = parser.expression().unwrap();
+        assert_eq!(result, -5.0);
+    }
+
+    #[test]
+    fn test_unary_plus_with_exponent() {
+        let input = "+2 ** 3";
+        let tokenizer = Tokenizer::tokenize(input).peekable();
+        let mut parser = Parser { tokenizer };
+        let result = parser.expression().unwrap();
+        assert_eq!(result, 8.0);
+    }
+
+    #[test]
+    fn test_unary_minus_with_exponent() {
+        let input = "-2 ** 2";
+        let tokenizer = Tokenizer::tokenize(input).peekable();
+        let mut parser = Parser { tokenizer };
+        let result = parser.expression().unwrap();
+        assert_eq!(result, -4.0);
+    }
+
+    #[test]
+    fn test_addition_with_unary_minus() {
+        let input = "5 + -3";
+        let tokenizer = Tokenizer::tokenize(input).peekable();
+        let mut parser = Parser { tokenizer };
+        let result = parser.expression().unwrap();
+        assert_eq!(result, 2.0);
+    }
+
+    #[test]
+    fn test_unary_minus_with_multiplication() {
+        let input = "-5 * 2";
+        let tokenizer = Tokenizer::tokenize(input).peekable();
+        let mut parser = Parser { tokenizer };
+        let result = parser.expression().unwrap();
+        assert_eq!(result, -10.0);
+    }
+
+    #[test]
+    fn test_unary_minus_in_term() {
+        let input = "10 / -2";
+        let tokenizer = Tokenizer::tokenize(input).peekable();
+        let mut parser = Parser { tokenizer };
+        let result = parser.expression().unwrap();
+        assert_eq!(result, -5.0);
+    }
+
+    #[test]
+    fn test_subtraction_with_unary_plus() {
+        let input = "10 - +3";
+        let tokenizer = Tokenizer::tokenize(input).peekable();
+        let mut parser = Parser { tokenizer };
+        let result = parser.expression().unwrap();
+        assert_eq!(result, 7.0);
+    }
+
+    #[test]
+    fn test_complex_expression_with_unary() {
+        let input = "-3 ** 2 + 5";
+        let tokenizer = Tokenizer::tokenize(input).peekable();
+        let mut parser = Parser { tokenizer };
+        let result = parser.expression().unwrap();
+        assert_eq!(result, -4.0); // (-3)^2 + 5 = 9 + 5 = 14, but we negate before exponent so -(3^2) = -9, -9+5 = -4
+    }
+
+    #[test]
+    fn test_double_minus() {
+        let input = "2 -- 2";
+        let tokenizer = Tokenizer::tokenize(input).peekable();
+        let mut parser = Parser { tokenizer };
+        let result = parser.expression().unwrap();
+        assert_eq!(result, 4.0); // 2 - (-2) = 4
     }
 }
